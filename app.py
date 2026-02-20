@@ -37,17 +37,35 @@ def approved_leaves_overlapping(team_id: int, start: date, end: date) -> int:
     )
 
 def deadline_counts(team_id: int, start: date, end: date):
-    # overlap: deadline date inside leave range
-    overlap = Deadline.query.filter_by(team_id=team_id).filter(Deadline.date >= start, Deadline.date <= end).count()
+    # HARD_BLOCK overlap inside leave range => instant reject
+    hard_block_overlap = (
+        Deadline.query
+        .filter_by(team_id=team_id, policy="HARD_BLOCK")
+        .filter(Deadline.date >= start, Deadline.date <= end)
+        .count()
+    )
 
-    # near: within +-3 days window (excluding overlap)
+    # ESCALATE overlap used for risk score
+    escalate_overlap = (
+        Deadline.query
+        .filter_by(team_id=team_id, policy="ESCALATE")
+        .filter(Deadline.date >= start, Deadline.date <= end)
+        .count()
+    )
+
+    # Near-window deadlines (ESCALATE policy only), excluding overlap
     near_window_start = start - timedelta(days=3)
     near_window_end = end + timedelta(days=3)
-    near = Deadline.query.filter_by(team_id=team_id).filter(
-        Deadline.date >= near_window_start, Deadline.date <= near_window_end
-    ).count()
-    near = max(0, near - overlap)
-    return overlap, near
+
+    near_total = (
+        Deadline.query
+        .filter_by(team_id=team_id, policy="ESCALATE")
+        .filter(Deadline.date >= near_window_start, Deadline.date <= near_window_end)
+        .count()
+    )
+    near = max(0, near_total - escalate_overlap)
+
+    return escalate_overlap, near, hard_block_overlap
 
 @app.route("/")
 @login_required
@@ -101,7 +119,8 @@ def employee_leave_new():
         t = current_user.team
         ts = team_size(t.id)
         approved_overlap = approved_leaves_overlapping(t.id, start, end)
-        overlap_dl, near_dl = deadline_counts(t.id, start, end)
+
+        escalate_overlap, near_dl, hard_block_overlap = deadline_counts(t.id, start, end)
 
         result = evaluate_leave(
             balance=current_user.leave_balance,
@@ -109,13 +128,13 @@ def employee_leave_new():
             team_size=ts,
             current_approved_leaves=approved_overlap,
             min_capacity=t.min_capacity,
-            overlapping_deadlines=overlap_dl,
+            overlapping_deadlines=escalate_overlap,
             near_deadlines=near_dl,
+            hard_block_overlaps=hard_block_overlap,
         )
 
         precheck = {"days_req": days_req, **result}
 
-        # If the user clicked final submit
         if request.form.get("submit_final") == "1":
             lr = LeaveRequest(
                 employee_id=current_user.id,
@@ -133,7 +152,7 @@ def employee_leave_new():
                 db.session.add(lr)
                 db.session.commit()
                 log_action(current_user.id, "SUBMIT_REJECT", "LeaveRequest", lr.id, lr.decision_note)
-                flash("Request rejected by policy (balance/invalid).", "danger")
+                flash("Request rejected by policy.", "danger")
                 return redirect(url_for("employee_leaves"))
 
             if result["decision"] == "AUTO_APPROVE":
@@ -174,7 +193,6 @@ def manager_dashboard():
         .all()
     )
 
-    # Deadlines to manage inside dashboard
     deadlines = (
         Deadline.query
         .filter_by(team_id=team_id)
@@ -182,7 +200,6 @@ def manager_dashboard():
         .all()
     )
 
-    # 7-day capacity projection
     ts = team_size(team_id)
     today = date.today()
     labels, capacity_values = [], []
@@ -256,9 +273,7 @@ def manager_decide(leave_id, action):
     return redirect(url_for("manager_dashboard"))
 
 
-# -----------------------------
-# NEW: Deadline CRUD (Manager)
-# -----------------------------
+# -------- Deadline CRUD (Manager) --------
 @app.route("/manager/deadlines/add", methods=["POST"])
 @login_required
 def add_deadline():
@@ -268,6 +283,7 @@ def add_deadline():
     title = request.form.get("title", "").strip()
     d = request.form.get("date", "").strip()
     severity = request.form.get("severity", "MED").strip().upper()
+    policy = request.form.get("policy", "ESCALATE").strip().upper()
 
     if not title or not d:
         flash("Title and date are required.", "danger")
@@ -281,15 +297,16 @@ def add_deadline():
 
     if severity not in ["LOW", "MED", "HIGH", "CRIT"]:
         severity = "MED"
+    if policy not in ["HARD_BLOCK", "ESCALATE"]:
+        policy = "ESCALATE"
 
-    dl = Deadline(team_id=current_user.team_id, title=title, date=deadline_date, severity=severity)
+    dl = Deadline(team_id=current_user.team_id, title=title, date=deadline_date, severity=severity, policy=policy)
     db.session.add(dl)
     db.session.commit()
 
-    log_action(current_user.id, "ADD_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity}")
+    log_action(current_user.id, "ADD_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity} {policy}")
     flash("Deadline added ✅", "success")
     return redirect(url_for("manager_dashboard"))
-
 
 @app.route("/manager/deadlines/<int:deadline_id>/edit", methods=["POST"])
 @login_required
@@ -305,6 +322,7 @@ def edit_deadline(deadline_id):
     title = request.form.get("title", "").strip()
     d = request.form.get("date", "").strip()
     severity = request.form.get("severity", "MED").strip().upper()
+    policy = request.form.get("policy", "ESCALATE").strip().upper()
 
     if not title or not d:
         flash("Title and date are required.", "danger")
@@ -318,16 +336,18 @@ def edit_deadline(deadline_id):
 
     if severity not in ["LOW", "MED", "HIGH", "CRIT"]:
         severity = "MED"
+    if policy not in ["HARD_BLOCK", "ESCALATE"]:
+        policy = "ESCALATE"
 
     dl.title = title
     dl.date = deadline_date
     dl.severity = severity
+    dl.policy = policy
     db.session.commit()
 
-    log_action(current_user.id, "EDIT_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity}")
+    log_action(current_user.id, "EDIT_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity} {policy}")
     flash("Deadline updated ✅", "success")
     return redirect(url_for("manager_dashboard"))
-
 
 @app.route("/manager/deadlines/<int:deadline_id>/delete", methods=["POST"])
 @login_required
@@ -347,6 +367,5 @@ def delete_deadline(deadline_id):
     flash("Deadline deleted 🗑️", "warning")
     return redirect(url_for("manager_dashboard"))
 
-
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()

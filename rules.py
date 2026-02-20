@@ -2,11 +2,7 @@ from datetime import date, timedelta
 from typing import Dict, Any
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def business_days(start: date, end: date) -> int:
-    """Count weekdays (Mon–Fri) inclusive. Returns 0 if invalid range."""
     if not start or not end or end < start:
         return 0
     days = 0
@@ -19,44 +15,25 @@ def business_days(start: date, end: date) -> int:
 
 
 def capacity_after_leave(team_size: int, people_on_leave: int) -> float:
-    """Capacity = available/total after including this leave."""
     if team_size <= 0:
         return 1.0
     available = max(team_size - people_on_leave, 0)
     return available / team_size
 
 
-# -----------------------------
-# Risk components (0..100 total)
-# Capacity: 0..40
-# Deadlines: 0..40
-# Duration: 0..20
-# -----------------------------
 def capacity_score(capacity_after: float, min_threshold: float) -> int:
-    """
-    0..40
-    - if capacity falls below min_threshold => 40
-    - if capacity >= 90% => 0
-    - otherwise linearly scale between 90% and min_threshold
-    """
     if capacity_after < min_threshold:
         return 40
     if capacity_after >= 0.90:
         return 0
-
     span = 0.90 - min_threshold
     if span <= 0:
-        return 10  # fallback
+        return 10
     ratio = (0.90 - capacity_after) / span
     return int(max(0, min(40, ratio * 40)))
 
 
 def deadline_score(overlapping_deadlines: int, near_deadlines: int) -> int:
-    """
-    0..40
-    - overlapping deadlines are heavy risk
-    - near deadlines are medium risk
-    """
     score = 0
     score += min(overlapping_deadlines * 25, 40)
     score += min(near_deadlines * 10, 20)
@@ -64,7 +41,6 @@ def deadline_score(overlapping_deadlines: int, near_deadlines: int) -> int:
 
 
 def duration_score(days_requested: int) -> int:
-    """0..20 based on leave length."""
     if days_requested <= 1:
         return 2
     if days_requested <= 3:
@@ -75,7 +51,6 @@ def duration_score(days_requested: int) -> int:
 
 
 def risk_level_from_score(risk: int) -> str:
-    """LOW / MED / HIGH / CRIT."""
     if risk >= 85:
         return "CRIT"
     if risk >= 70:
@@ -85,29 +60,17 @@ def risk_level_from_score(risk: int) -> str:
     return "LOW"
 
 
-# -----------------------------
-# Main evaluator
-# -----------------------------
 def evaluate_leave(
     balance: float,
     days_requested: int,
     team_size: int,
     current_approved_leaves: int,
     min_capacity: float,
-    overlapping_deadlines: int,
+    overlapping_deadlines: int,     # deadlines with policy ESCALATE
     near_deadlines: int,
+    hard_block_overlaps: int,       # NEW: deadlines with policy HARD_BLOCK
 ) -> Dict[str, Any]:
-    """
-    Always returns:
-    - decision: REJECT / AUTO_APPROVE / ESCALATE
-    - risk: 0..100
-    - level: LOW/MED/HIGH/CRIT
-    - reasons: list[str]
-    - capacity_after: float
-    - components: {capacity, deadlines, duration}
-    """
 
-    # Safe base ensures templates never crash
     safe_base = {
         "decision": "ESCALATE",
         "risk": 0,
@@ -117,7 +80,7 @@ def evaluate_leave(
         "components": {"capacity": 0, "deadlines": 0, "duration": 0},
     }
 
-    # ---- Hard rejection rules ----
+    # Hard rejection 1: invalid/0 days
     if days_requested <= 0:
         safe_base.update({
             "decision": "REJECT",
@@ -127,6 +90,7 @@ def evaluate_leave(
         })
         return safe_base
 
+    # Hard rejection 2: balance
     if balance < days_requested:
         safe_base.update({
             "decision": "REJECT",
@@ -136,7 +100,17 @@ def evaluate_leave(
         })
         return safe_base
 
-    # ---- Components ----
+    # Hard rejection 3 (NEW): overlaps a HARD_BLOCK deadline
+    if hard_block_overlaps > 0:
+        safe_base.update({
+            "decision": "REJECT",
+            "risk": 100,
+            "level": "CRIT",
+            "reasons": [f"Leave overlaps {hard_block_overlaps} HARD-BLOCK deadline(s). Policy: Auto-Reject."],
+        })
+        return safe_base
+
+    # Compute components
     cap_after = capacity_after_leave(team_size, current_approved_leaves + 1)
 
     cap_comp = capacity_score(cap_after, min_capacity)               # 0..40
@@ -146,8 +120,7 @@ def evaluate_leave(
     risk = min(100, cap_comp + dl_comp + dur_comp)
     level = risk_level_from_score(risk)
 
-    # ---- Decision logic ----
-    # Auto-approve only if low risk + safe capacity + no overlap deadline
+    # Decision
     if risk < 35 and cap_after >= min_capacity and overlapping_deadlines == 0:
         decision = "AUTO_APPROVE"
     else:
@@ -155,7 +128,7 @@ def evaluate_leave(
 
     reasons = [
         f"Capacity after leave: {cap_after:.0%} (min allowed {min_capacity:.0%})",
-        f"Deadlines overlap: {overlapping_deadlines}, near-window deadlines: {near_deadlines}",
+        f"Deadlines (escalate-policy) overlap: {overlapping_deadlines}, near-window: {near_deadlines}",
         f"Working days requested: {days_requested}",
         f"Risk breakdown -> Capacity:{cap_comp} + Deadlines:{dl_comp} + Duration:{dur_comp} = {risk}",
     ]
