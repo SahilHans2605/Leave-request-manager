@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>My Leave Requests</h3>
+  <a class="btn btn-primary" href="/employee/leave/new">New Request</a>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="mb-2"><b>Balance:</b> {{ "%.1f"|format(current_user.leave_balance) }} days</div>
+    <table class="table table-sm">
+      <thead>
+        <tr>
+          <th>ID</th><th>Dates</th><th>Status</th><th>Risk</th><th>Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in leaves %}
+        <tr>
+          <td>#{{ l.id }}</td>
+          <td>{{ l.start_date }} → {{ l.end_date }}</td>
+          <td><span class="badge bg-secondary">{{ l.status }}</span></td>
+          <td>{{ l.risk_score }} ({{ l.risk_level }})</td>
+          <td class="text-muted">{{ l.decision_note }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

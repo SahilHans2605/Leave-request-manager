@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>Request Leave</h3>
+  <a class="btn btn-outline-secondary" href="/employee/leaves">My Leaves</a>
+</div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <form method="post">
+          <label class="form-label">Start Date</label>
+          <input class="form-control mb-2" type="date" name="start_date" required>
+          <label class="form-label">End Date</label>
+          <input class="form-control mb-2" type="date" name="end_date" required>
+
+          <label class="form-label">Leave Type</label>
+          <select class="form-select mb-2" name="leave_type">
+            <option value="EL">Earned Leave (EL)</option>
+            <option value="CL">Casual Leave (CL)</option>
+            <option value="SL">Sick Leave (SL)</option>
+          </select>
+
+          <label class="form-label">Reason</label>
+          <input class="form-control mb-3" name="reason" placeholder="Short reason">
+
+          <button class="btn btn-outline-primary" name="preview" value="1">Run Pre-Check</button>
+
+          {% if precheck %}
+            <input type="hidden" name="submit_final" value="1">
+            <button class="btn btn-primary ms-2">Submit Request</button>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5>Pre-Submission Check</h5>
+        {% if not precheck %}
+          <div class="text-muted">Fill dates and click “Run Pre-Check”.</div>
+        {% else %}
+          <div class="mb-2"><b>Requested Days:</b> {{ precheck.days_req }}</div>
+          <div class="mb-2"><b>Risk Score:</b> {{ precheck.risk }} / 100 ({{ precheck.level }})</div>
+          <div class="mb-2"><b>Decision:</b> {{ precheck.decision }}</div>
+
+          <div class="mt-3">
+            <b>Reasons</b>
+            <ul>
+              {% for r in precheck.reasons %}
+                <li>{{ r }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="mt-3">
+            <b>Risk Breakdown</b>
+            <div class="small text-muted">Capacity: {{ precheck.components.capacity }}, Deadlines: {{ precheck.components.deadlines }}, Duration: {{ precheck.components.duration }}</div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

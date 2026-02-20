@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-3">Manager Dashboard</h3>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h5>Pending Approvals</h5>
+        {% if not pending %}
+          <div class="text-muted">No pending requests.</div>
+        {% else %}
+          <table class="table table-sm align-middle">
+            <thead><tr><th>Employee</th><th>Dates</th><th>Risk</th><th>Action</th></tr></thead>
+            <tbody>
+              {% for p in pending %}
+              <tr>
+                <td>{{ p.employee.full_name }}</td>
+                <td>{{ p.start_date }} → {{ p.end_date }}</td>
+                <td>
+                  <span class="badge bg-danger">{{ p.risk_score }}</span>
+                  <span class="text-muted">{{ p.risk_level }}</span>
+                </td>
+                <td>
+                  <form method="post" action="/manager/leaves/{{p.id}}/approve" style="display:inline">
+                    <button class="btn btn-success btn-sm">Approve</button>
+                  </form>
+                  <form method="post" action="/manager/leaves/{{p.id}}/reject" style="display:inline">
+                    <button class="btn btn-outline-danger btn-sm">Reject</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h5>Team Capacity (Next 7 Days)</h5>
+        <canvas id="capChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NEW: Deadline Management -->
+<div class="row mt-3">
+  <div class="col-md-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Deadlines (Manager Managed)</h5>
+        </div>
+
+        <!-- Add Deadline Form -->
+        <form method="post" action="/manager/deadlines/add" class="row g-2 mt-2">
+          <div class="col-md-5">
+            <input class="form-control" name="title" placeholder="Deadline title (e.g., Sprint End)" required>
+          </div>
+          <div class="col-md-3">
+            <input class="form-control" type="date" name="date" required>
+          </div>
+          <div class="col-md-2">
+            <select class="form-select" name="severity">
+              <option value="LOW">LOW</option>
+              <option value="MED" selected>MED</option>
+              <option value="HIGH">HIGH</option>
+              <option value="CRIT">CRIT</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button class="btn btn-primary w-100">Add</button>
+          </div>
+        </form>
+
+        <!-- Deadlines Table -->
+        <div class="table-responsive mt-3">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Date</th>
+                <th>Severity</th>
+                <th style="width: 360px;">Edit</th>
+                <th style="width: 120px;">Delete</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in deadlines %}
+              <tr>
+                <td>{{ d.title }}</td>
+                <td>{{ d.date }}</td>
+                <td><span class="badge bg-dark">{{ d.severity }}</span></td>
+
+                <!-- Inline Edit -->
+                <td>
+                  <form method="post" action="/manager/deadlines/{{ d.id }}/edit" class="d-flex gap-2">
+                    <input class="form-control form-control-sm" name="title" value="{{ d.title }}" required>
+                    <input class="form-control form-control-sm" type="date" name="date" value="{{ d.date }}" required>
+                    <select class="form-select form-select-sm" name="severity">
+                      <option value="LOW"  {% if d.severity == "LOW" %}selected{% endif %}>LOW</option>
+                      <option value="MED"  {% if d.severity == "MED" %}selected{% endif %}>MED</option>
+                      <option value="HIGH" {% if d.severity == "HIGH" %}selected{% endif %}>HIGH</option>
+                      <option value="CRIT" {% if d.severity == "CRIT" %}selected{% endif %}>CRIT</option>
+                    </select>
+                    <button class="btn btn-success btn-sm">Save</button>
+                  </form>
+                </td>
+
+                <td>
+                  <form method="post" action="/manager/deadlines/{{ d.id }}/delete"
+                        onsubmit="return confirm('Delete this deadline?');">
+                    <button class="btn btn-outline-danger btn-sm">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+
+              {% if deadlines|length == 0 %}
+              <tr>
+                <td colspan="5" class="text-muted">No deadlines set yet. Add one above.</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="text-muted small">
+          These deadlines affect the leave risk score (overlap + near-window detection).
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const labels = {{ labels|tojson }};
+const capVals = {{ capacity_values|tojson }};
+new Chart(document.getElementById("capChart"), {
+  type: "line",
+  data: { labels, datasets: [{ label: "Capacity %", data: capVals }] },
+  options: { scales: { y: { suggestedMin: 0, suggestedMax: 100 } } }
+});
+</script>
+{% endblock %}
