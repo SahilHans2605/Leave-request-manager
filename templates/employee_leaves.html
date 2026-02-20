@@ -1,31 +1,63 @@
 {% extends "base.html" %}
+{% block title %}My Leaves • LeaveSmart{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h3>My Leave Requests</h3>
-  <a class="btn btn-primary" href="/employee/leave/new">New Request</a>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h3 class="page-title">My Leave Requests</h3>
+    <div class="subtle">Track status, risk score, and decision notes.</div>
+  </div>
+  <a class="btn btn-primary" href="/employee/leave/new">+ New Request</a>
 </div>
 
-<div class="card shadow-sm">
-  <div class="card-body">
-    <div class="mb-2"><b>Balance:</b> {{ "%.1f"|format(current_user.leave_balance) }} days</div>
-    <table class="table table-sm">
-      <thead>
-        <tr>
-          <th>ID</th><th>Dates</th><th>Status</th><th>Risk</th><th>Note</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for l in leaves %}
-        <tr>
-          <td>#{{ l.id }}</td>
-          <td>{{ l.start_date }} → {{ l.end_date }}</td>
-          <td><span class="badge bg-secondary">{{ l.status }}</span></td>
-          <td>{{ l.risk_score }} ({{ l.risk_level }})</td>
-          <td class="text-muted">{{ l.decision_note }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="card mb-3">
+  <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <div class="subtle">Current Balance</div>
+      <div style="font-size:1.5rem; font-weight:800;">
+        {{ "%.1f"|format(current_user.leave_balance) }} <span class="subtle">days</span>
+      </div>
+    </div>
+    <div class="pill">
+      Tip: Use <b>Pre-Check</b> before submitting to avoid rejection.
+    </div>
   </div>
 </div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th style="width:70px;">ID</th>
+            <th style="min-width:210px;">Dates</th>
+            <th style="width:120px;">Status</th>
+            <th style="width:160px;">Risk</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in leaves %}
+          <tr>
+            <td><b>#{{ l.id }}</b></td>
+            <td>{{ l.start_date }} → {{ l.end_date }}</td>
+            <td><span class="badge bg-secondary">{{ l.status }}</span></td>
+            <td><b>{{ l.risk_score }}</b> <span class="subtle">({{ l.risk_level }})</span></td>
+            <td class="text-muted">{{ l.decision_note }}</td>
+          </tr>
+          {% endfor %}
+          {% if leaves|length == 0 %}
+          <tr>
+            <td colspan="5" class="text-muted">
+              No leave requests yet. Click <b>New Request</b> to create one.
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 {% endblock %}

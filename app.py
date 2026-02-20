@@ -15,16 +15,20 @@ login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
 
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
+
 
 def log_action(actor_id: int, action: str, entity: str, entity_id: int, meta: str = ""):
     db.session.add(AuditLog(actor_user_id=actor_id, action=action, entity=entity, entity_id=entity_id, meta=meta))
     db.session.commit()
 
+
 def team_size(team_id: int) -> int:
     return User.query.filter_by(team_id=team_id, role="EMPLOYEE").count()
+
 
 def approved_leaves_overlapping(team_id: int, start: date, end: date) -> int:
     return (
@@ -36,18 +40,41 @@ def approved_leaves_overlapping(team_id: int, start: date, end: date) -> int:
         .count()
     )
 
-def deadline_counts(team_id: int, start: date, end: date):
-    # overlap: deadline date inside leave range
-    overlap = Deadline.query.filter_by(team_id=team_id).filter(Deadline.date >= start, Deadline.date <= end).count()
 
-    # near: within +-3 days window (excluding overlap)
+def deadline_counts(team_id: int, start: date, end: date):
+    """
+    Returns:
+      - escalate_overlap: number of ESCALATE policy deadlines overlapping leave range
+      - near: number of ESCALATE policy deadlines in +-3 day window excluding overlap
+      - hard_block_overlap: number of HARD_BLOCK deadlines overlapping leave range
+    """
+    hard_block_overlap = (
+        Deadline.query
+        .filter_by(team_id=team_id, policy="HARD_BLOCK")
+        .filter(Deadline.date >= start, Deadline.date <= end)
+        .count()
+    )
+
+    escalate_overlap = (
+        Deadline.query
+        .filter_by(team_id=team_id, policy="ESCALATE")
+        .filter(Deadline.date >= start, Deadline.date <= end)
+        .count()
+    )
+
     near_window_start = start - timedelta(days=3)
     near_window_end = end + timedelta(days=3)
-    near = Deadline.query.filter_by(team_id=team_id).filter(
-        Deadline.date >= near_window_start, Deadline.date <= near_window_end
-    ).count()
-    near = max(0, near - overlap)
-    return overlap, near
+
+    near_total = (
+        Deadline.query
+        .filter_by(team_id=team_id, policy="ESCALATE")
+        .filter(Deadline.date >= near_window_start, Deadline.date <= near_window_end)
+        .count()
+    )
+    near = max(0, near_total - escalate_overlap)
+
+    return escalate_overlap, near, hard_block_overlap
+
 
 @app.route("/")
 @login_required
@@ -55,6 +82,7 @@ def home():
     if current_user.role == "MANAGER":
         return redirect(url_for("manager_dashboard"))
     return redirect(url_for("employee_leaves"))
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -69,11 +97,13 @@ def login():
         return redirect(url_for("home"))
     return render_template("login.html")
 
+
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
     return redirect(url_for("login"))
+
 
 @app.route("/employee/leaves")
 @login_required
@@ -83,6 +113,8 @@ def employee_leaves():
     leaves = LeaveRequest.query.filter_by(employee_id=current_user.id).order_by(LeaveRequest.created_at.desc()).all()
     return render_template("employee_leaves.html", leaves=leaves)
 
+
+# ✅ UPDATED: Form autofill after Pre-check (form_data)
 @app.route("/employee/leave/new", methods=["GET", "POST"])
 @login_required
 def employee_leave_new():
@@ -91,71 +123,89 @@ def employee_leave_new():
 
     precheck = None
 
+    # Keep submitted form values so the form does NOT reset after precheck
+    form_data = {
+        "start_date": "",
+        "end_date": "",
+        "leave_type": "EL",
+        "reason": ""
+    }
+
     if request.method == "POST":
-        start = date.fromisoformat(request.form["start_date"])
-        end = date.fromisoformat(request.form["end_date"])
-        leave_type = request.form.get("leave_type", "EL")
-        reason = request.form.get("reason", "")
+        form_data["start_date"] = request.form.get("start_date", "")
+        form_data["end_date"] = request.form.get("end_date", "")
+        form_data["leave_type"] = request.form.get("leave_type", "EL")
+        form_data["reason"] = request.form.get("reason", "")
 
-        days_req = business_days(start, end)
-        t = current_user.team
-        ts = team_size(t.id)
-        approved_overlap = approved_leaves_overlapping(t.id, start, end)
-        overlap_dl, near_dl = deadline_counts(t.id, start, end)
+        # Only run precheck if both dates exist
+        if form_data["start_date"] and form_data["end_date"]:
+            start = date.fromisoformat(form_data["start_date"])
+            end = date.fromisoformat(form_data["end_date"])
 
-        result = evaluate_leave(
-            balance=current_user.leave_balance,
-            days_requested=days_req,
-            team_size=ts,
-            current_approved_leaves=approved_overlap,
-            min_capacity=t.min_capacity,
-            overlapping_deadlines=overlap_dl,
-            near_deadlines=near_dl,
-        )
+            days_req = business_days(start, end)
+            t = current_user.team
+            ts = team_size(t.id)
+            approved_overlap = approved_leaves_overlapping(t.id, start, end)
 
-        precheck = {"days_req": days_req, **result}
+            escalate_overlap, near_dl, hard_block_overlap = deadline_counts(t.id, start, end)
 
-        # If the user clicked final submit
-        if request.form.get("submit_final") == "1":
-            lr = LeaveRequest(
-                employee_id=current_user.id,
-                start_date=start,
-                end_date=end,
-                leave_type=leave_type,
-                reason=reason,
-                risk_score=result["risk"],
-                risk_level=result["level"],
+            result = evaluate_leave(
+                balance=current_user.leave_balance,
+                days_requested=days_req,
+                team_size=ts,
+                current_approved_leaves=approved_overlap,
+                min_capacity=t.min_capacity,
+                overlapping_deadlines=escalate_overlap,
+                near_deadlines=near_dl,
+                hard_block_overlaps=hard_block_overlap,
+                reason=form_data["reason"],
             )
 
-            if result["decision"] == "REJECT":
-                lr.status = "REJECTED"
-                lr.decision_note = "; ".join(result["reasons"])
+            precheck = {"days_req": days_req, **result}
+
+            # Final submit (after precheck)
+            if request.form.get("submit_final") == "1":
+                lr = LeaveRequest(
+                    employee_id=current_user.id,
+                    start_date=start,
+                    end_date=end,
+                    leave_type=form_data["leave_type"],
+                    reason=form_data["reason"],
+                    risk_score=result["risk"],
+                    risk_level=result["level"],
+                )
+
+                if result["decision"] == "REJECT":
+                    lr.status = "REJECTED"
+                    lr.decision_note = "; ".join(result["reasons"])
+                    db.session.add(lr)
+                    db.session.commit()
+                    log_action(current_user.id, "SUBMIT_REJECT", "LeaveRequest", lr.id, lr.decision_note)
+                    flash("Request rejected by policy.", "danger")
+                    return redirect(url_for("employee_leaves"))
+
+                if result["decision"] == "AUTO_APPROVE":
+                    lr.status = "APPROVED"
+                    lr.decision_note = "Auto-approved by rule engine"
+                    lr.decided_at = datetime.utcnow()
+                    current_user.leave_balance -= days_req
+                    db.session.add(lr)
+                    db.session.commit()
+                    log_action(current_user.id, "AUTO_APPROVE", "LeaveRequest", lr.id, f"risk={lr.risk_score}")
+                    flash("Leave auto-approved ✅", "success")
+                    return redirect(url_for("employee_leaves"))
+
+                lr.status = "PENDING_APPROVAL"
+                lr.decision_note = "Escalated to manager"
                 db.session.add(lr)
                 db.session.commit()
-                log_action(current_user.id, "SUBMIT_REJECT", "LeaveRequest", lr.id, lr.decision_note)
-                flash("Request rejected by policy (balance/invalid).", "danger")
+                log_action(current_user.id, "SUBMIT_ESCALATE", "LeaveRequest", lr.id, f"risk={lr.risk_score}")
+                flash("Leave submitted and escalated to manager ⚠️", "warning")
                 return redirect(url_for("employee_leaves"))
 
-            if result["decision"] == "AUTO_APPROVE":
-                lr.status = "APPROVED"
-                lr.decision_note = "Auto-approved by rule engine"
-                lr.decided_at = datetime.utcnow()
-                current_user.leave_balance -= days_req
-                db.session.add(lr)
-                db.session.commit()
-                log_action(current_user.id, "AUTO_APPROVE", "LeaveRequest", lr.id, f"risk={lr.risk_score}")
-                flash("Leave auto-approved ✅", "success")
-                return redirect(url_for("employee_leaves"))
+    # ✅ IMPORTANT: Always pass form_data so inputs keep values after precheck
+    return render_template("employee_leave_new.html", precheck=precheck, form_data=form_data)
 
-            lr.status = "PENDING_APPROVAL"
-            lr.decision_note = "Escalated to manager"
-            db.session.add(lr)
-            db.session.commit()
-            log_action(current_user.id, "SUBMIT_ESCALATE", "LeaveRequest", lr.id, f"risk={lr.risk_score}")
-            flash("Leave submitted and escalated to manager ⚠️", "warning")
-            return redirect(url_for("employee_leaves"))
-
-    return render_template("employee_leave_new.html", precheck=precheck)
 
 @app.route("/manager/dashboard")
 @login_required
@@ -174,7 +224,6 @@ def manager_dashboard():
         .all()
     )
 
-    # Deadlines to manage inside dashboard
     deadlines = (
         Deadline.query
         .filter_by(team_id=team_id)
@@ -207,6 +256,7 @@ def manager_dashboard():
         capacity_values=capacity_values,
         deadlines=deadlines
     )
+
 
 @app.route("/manager/leaves/<int:leave_id>/<action>", methods=["POST"])
 @login_required
@@ -257,7 +307,7 @@ def manager_decide(leave_id, action):
 
 
 # -----------------------------
-# NEW: Deadline CRUD (Manager)
+# Deadline CRUD (Manager)
 # -----------------------------
 @app.route("/manager/deadlines/add", methods=["POST"])
 @login_required
@@ -268,6 +318,7 @@ def add_deadline():
     title = request.form.get("title", "").strip()
     d = request.form.get("date", "").strip()
     severity = request.form.get("severity", "MED").strip().upper()
+    policy = request.form.get("policy", "ESCALATE").strip().upper()
 
     if not title or not d:
         flash("Title and date are required.", "danger")
@@ -281,12 +332,14 @@ def add_deadline():
 
     if severity not in ["LOW", "MED", "HIGH", "CRIT"]:
         severity = "MED"
+    if policy not in ["HARD_BLOCK", "ESCALATE"]:
+        policy = "ESCALATE"
 
-    dl = Deadline(team_id=current_user.team_id, title=title, date=deadline_date, severity=severity)
+    dl = Deadline(team_id=current_user.team_id, title=title, date=deadline_date, severity=severity, policy=policy)
     db.session.add(dl)
     db.session.commit()
 
-    log_action(current_user.id, "ADD_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity}")
+    log_action(current_user.id, "ADD_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity} {policy}")
     flash("Deadline added ✅", "success")
     return redirect(url_for("manager_dashboard"))
 
@@ -305,6 +358,7 @@ def edit_deadline(deadline_id):
     title = request.form.get("title", "").strip()
     d = request.form.get("date", "").strip()
     severity = request.form.get("severity", "MED").strip().upper()
+    policy = request.form.get("policy", "ESCALATE").strip().upper()
 
     if not title or not d:
         flash("Title and date are required.", "danger")
@@ -318,13 +372,16 @@ def edit_deadline(deadline_id):
 
     if severity not in ["LOW", "MED", "HIGH", "CRIT"]:
         severity = "MED"
+    if policy not in ["HARD_BLOCK", "ESCALATE"]:
+        policy = "ESCALATE"
 
     dl.title = title
     dl.date = deadline_date
     dl.severity = severity
+    dl.policy = policy
     db.session.commit()
 
-    log_action(current_user.id, "EDIT_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity}")
+    log_action(current_user.id, "EDIT_DEADLINE", "Deadline", dl.id, f"{title} {deadline_date} {severity} {policy}")
     flash("Deadline updated ✅", "success")
     return redirect(url_for("manager_dashboard"))
 

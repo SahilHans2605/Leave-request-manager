@@ -1,68 +1,107 @@
 {% extends "base.html" %}
+{% block title %}Request Leave • LeaveSmart{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h3>Request Leave</h3>
-  <a class="btn btn-outline-secondary" href="/employee/leaves">My Leaves</a>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h3 class="page-title">Request Leave</h3>
+    <div class="subtle">Run a pre-check to see risk & decision before submitting.</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="/employee/leaves">← My Leaves</a>
 </div>
 
-<div class="row">
-  <div class="col-md-6">
-    <div class="card shadow-sm">
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card">
       <div class="card-body">
+        <h5 class="mb-3">Leave Details</h5>
+
         <form method="post">
           <label class="form-label">Start Date</label>
-          <input class="form-control mb-2" type="date" name="start_date" required>
+          <input class="form-control mb-3" type="date" name="start_date"
+                 value="{{ form_data.get('start_date','') if form_data else '' }}" required>
+
           <label class="form-label">End Date</label>
-          <input class="form-control mb-2" type="date" name="end_date" required>
+          <input class="form-control mb-3" type="date" name="end_date"
+                 value="{{ form_data.get('end_date','') if form_data else '' }}" required>
 
           <label class="form-label">Leave Type</label>
-          <select class="form-select mb-2" name="leave_type">
-            <option value="EL">Earned Leave (EL)</option>
-            <option value="CL">Casual Leave (CL)</option>
-            <option value="SL">Sick Leave (SL)</option>
+          <select class="form-select mb-3" name="leave_type">
+            <option value="EL" {% if form_data and form_data.get('leave_type') == "EL" %}selected{% endif %}>
+              Earned Leave (EL)
+            </option>
+            <option value="CL" {% if form_data and form_data.get('leave_type') == "CL" %}selected{% endif %}>
+              Casual Leave (CL)
+            </option>
+            <option value="SL" {% if form_data and form_data.get('leave_type') == "SL" %}selected{% endif %}>
+              Sick Leave (SL)
+            </option>
           </select>
 
           <label class="form-label">Reason</label>
-          <input class="form-control mb-3" name="reason" placeholder="Short reason">
+          <input class="form-control mb-3" name="reason" placeholder="Short reason"
+                 value="{{ form_data.get('reason','') if form_data else '' }}">
 
-          <button class="btn btn-outline-primary" name="preview" value="1">Run Pre-Check</button>
+          <div class="d-flex flex-wrap gap-2">
+            {% if not precheck %}
+              <button class="btn btn-outline-secondary" name="preview" value="1">Run Pre-Check</button>
+              <span class="subtle align-self-center">No request will be submitted yet.</span>
+            {% else %}
+              <input type="hidden" name="submit_final" value="1">
+              <button class="btn btn-primary">Submit Request</button>
+              <button class="btn btn-outline-secondary" name="preview" value="1">Re-Run Pre-Check</button>
+            {% endif %}
+          </div>
 
-          {% if precheck %}
-            <input type="hidden" name="submit_final" value="1">
-            <button class="btn btn-primary ms-2">Submit Request</button>
-          {% endif %}
         </form>
       </div>
     </div>
   </div>
 
-  <div class="col-md-6">
-    <div class="card shadow-sm">
+  <div class="col-lg-6">
+    <div class="card">
       <div class="card-body">
-        <h5>Pre-Submission Check</h5>
-        {% if not precheck %}
-          <div class="text-muted">Fill dates and click “Run Pre-Check”.</div>
-        {% else %}
-          <div class="mb-2"><b>Requested Days:</b> {{ precheck.days_req }}</div>
-          <div class="mb-2"><b>Risk Score:</b> {{ precheck.risk }} / 100 ({{ precheck.level }})</div>
-          <div class="mb-2"><b>Decision:</b> {{ precheck.decision }}</div>
+        <h5 class="mb-1">Pre-Submission Check</h5>
+        <div class="subtle mb-3">Shows risk score, decision, and reasons.</div>
 
-          <div class="mt-3">
-            <b>Reasons</b>
-            <ul>
+        {% if not precheck %}
+          <div class="p-3 rounded-3" style="border:1px dashed rgba(255,255,255,.18); background: rgba(255,255,255,.03);">
+            <div class="text-muted">Fill details and click <b>“Run Pre-Check”</b>.</div>
+          </div>
+        {% else %}
+
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <span class="pill"><b>Requested Days:</b>&nbsp;{{ precheck.days_req }}</span>
+            <span class="pill"><b>Risk:</b>&nbsp;{{ precheck.risk }} / 100 • {{ precheck.level }}</span>
+            <span class="pill"><b>Decision:</b>&nbsp;{{ precheck.decision }}</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="mb-3">
+            <div class="mb-2"><b>Reasons</b></div>
+            <ul class="mb-0">
               {% for r in precheck.reasons %}
-                <li>{{ r }}</li>
+                <li class="text-muted">{{ r }}</li>
               {% endfor %}
             </ul>
           </div>
 
-          <div class="mt-3">
-            <b>Risk Breakdown</b>
-            <div class="small text-muted">Capacity: {{ precheck.components.capacity }}, Deadlines: {{ precheck.components.deadlines }}, Duration: {{ precheck.components.duration }}</div>
+          <div class="divider"></div>
+
+          <div>
+            <div class="mb-2"><b>Risk Breakdown</b></div>
+            <div class="subtle">
+              Capacity: <b>{{ precheck.components.capacity }}</b>,
+              Deadlines: <b>{{ precheck.components.deadlines }}</b>,
+              Duration: <b>{{ precheck.components.duration }}</b>
+            </div>
           </div>
+
         {% endif %}
       </div>
     </div>
   </div>
 </div>
+
 {% endblock %}
