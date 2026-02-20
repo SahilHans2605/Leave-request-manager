@@ -22,12 +22,34 @@ def run():
             employees.append(u)
         db.session.add_all(employees)
 
-        # Add a couple deadlines to create conflict scenarios
-        db.session.add(Deadline(team_id=team.id, title="Sprint End", date=date.today() + timedelta(days=3), severity="HIGH"))
-        db.session.add(Deadline(team_id=team.id, title="Release v1", date=date.today() + timedelta(days=7), severity="MED"))
+        # Demo deadlines:
+        # 1) HARD_BLOCK => auto-reject overlap
+        db.session.add(Deadline(
+            team_id=team.id,
+            title="Release Freeze Day",
+            date=date.today() + timedelta(days=2),
+            severity="CRIT",
+            policy="HARD_BLOCK"
+        ))
+
+        # 2) ESCALATE => allow manager decision
+        db.session.add(Deadline(
+            team_id=team.id,
+            title="Sprint End",
+            date=date.today() + timedelta(days=5),
+            severity="HIGH",
+            policy="ESCALATE"
+        ))
+
+        db.session.add(Deadline(
+            team_id=team.id,
+            title="Client Demo",
+            date=date.today() + timedelta(days=7),
+            severity="HIGH",
+            policy="ESCALATE"
+        ))
 
         db.session.commit()
-
         print("✅ Seed complete.")
         print("Manager login: manager@demo.com / demo123")
         print("Employee login: e1@demo.com / demo123 (also e2..e5)")

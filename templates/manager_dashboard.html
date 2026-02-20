@@ -48,21 +48,19 @@
   </div>
 </div>
 
-<!-- NEW: Deadline Management -->
+<!-- Deadline Management -->
 <div class="row mt-3">
   <div class="col-md-12">
     <div class="card shadow-sm">
       <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center">
-          <h5 class="mb-0">Deadlines (Manager Managed)</h5>
-        </div>
+        <h5 class="mb-0">Deadlines (Manager Managed)</h5>
 
         <!-- Add Deadline Form -->
         <form method="post" action="/manager/deadlines/add" class="row g-2 mt-2">
-          <div class="col-md-5">
+          <div class="col-md-4">
             <input class="form-control" name="title" placeholder="Deadline title (e.g., Sprint End)" required>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-2">
             <input class="form-control" type="date" name="date" required>
           </div>
           <div class="col-md-2">
@@ -73,7 +71,13 @@
               <option value="CRIT">CRIT</option>
             </select>
           </div>
-          <div class="col-md-2">
+          <div class="col-md-3">
+            <select class="form-select" name="policy">
+              <option value="ESCALATE" selected>ESCALATE (Manager Review)</option>
+              <option value="HARD_BLOCK">HARD_BLOCK (Auto-Reject)</option>
+            </select>
+          </div>
+          <div class="col-md-1">
             <button class="btn btn-primary w-100">Add</button>
           </div>
         </form>
@@ -86,7 +90,8 @@
                 <th>Title</th>
                 <th>Date</th>
                 <th>Severity</th>
-                <th style="width: 360px;">Edit</th>
+                <th>Policy</th>
+                <th style="width: 480px;">Edit</th>
                 <th style="width: 120px;">Delete</th>
               </tr>
             </thead>
@@ -96,18 +101,36 @@
                 <td>{{ d.title }}</td>
                 <td>{{ d.date }}</td>
                 <td><span class="badge bg-dark">{{ d.severity }}</span></td>
+                <td>
+                  {% if d.policy == "HARD_BLOCK" %}
+                    <span class="badge bg-danger">HARD_BLOCK</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark">ESCALATE</span>
+                  {% endif %}
+                </td>
 
                 <!-- Inline Edit -->
                 <td>
                   <form method="post" action="/manager/deadlines/{{ d.id }}/edit" class="d-flex gap-2">
                     <input class="form-control form-control-sm" name="title" value="{{ d.title }}" required>
                     <input class="form-control form-control-sm" type="date" name="date" value="{{ d.date }}" required>
+
                     <select class="form-select form-select-sm" name="severity">
                       <option value="LOW"  {% if d.severity == "LOW" %}selected{% endif %}>LOW</option>
                       <option value="MED"  {% if d.severity == "MED" %}selected{% endif %}>MED</option>
                       <option value="HIGH" {% if d.severity == "HIGH" %}selected{% endif %}>HIGH</option>
                       <option value="CRIT" {% if d.severity == "CRIT" %}selected{% endif %}>CRIT</option>
                     </select>
+
+                    <select class="form-select form-select-sm" name="policy">
+                      <option value="ESCALATE" {% if d.policy == "ESCALATE" %}selected{% endif %}>
+                        ESCALATE
+                      </option>
+                      <option value="HARD_BLOCK" {% if d.policy == "HARD_BLOCK" %}selected{% endif %}>
+                        HARD_BLOCK
+                      </option>
+                    </select>
+
                     <button class="btn btn-success btn-sm">Save</button>
                   </form>
                 </td>
@@ -123,7 +146,7 @@
 
               {% if deadlines|length == 0 %}
               <tr>
-                <td colspan="5" class="text-muted">No deadlines set yet. Add one above.</td>
+                <td colspan="6" class="text-muted">No deadlines set yet. Add one above.</td>
               </tr>
               {% endif %}
             </tbody>
@@ -131,7 +154,7 @@
         </div>
 
         <div class="text-muted small">
-          These deadlines affect the leave risk score (overlap + near-window detection).
+          HARD_BLOCK deadlines will auto-reject overlapping leaves. ESCALATE deadlines allow manager review.
         </div>
       </div>
     </div>

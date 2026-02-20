@@ -33,11 +33,18 @@ class User(UserMixin, db.Model):
 class Deadline(db.Model):
     __tablename__ = "deadlines"
     id = db.Column(db.Integer, primary_key=True)
+
     team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=False)
     team = db.relationship("Team")
+
     title = db.Column(db.String(120), nullable=False)
     date = db.Column(db.Date, nullable=False)
     severity = db.Column(db.String(10), default="MED")  # LOW/MED/HIGH/CRIT
+
+    # NEW: policy decides what happens if leave overlaps this deadline date
+    # HARD_BLOCK = auto-reject if overlap
+    # ESCALATE = allowed to submit (goes to manager if risky)
+    policy = db.Column(db.String(20), default="ESCALATE")  # HARD_BLOCK / ESCALATE
 
 class LeaveRequest(db.Model):
     __tablename__ = "leave_requests"
@@ -53,7 +60,7 @@ class LeaveRequest(db.Model):
 
     status = db.Column(db.String(20), default="SUBMITTED")
     risk_score = db.Column(db.Integer, default=0)
-    risk_level = db.Column(db.String(10), default="LOW")  # LOW/MED/HIGH
+    risk_level = db.Column(db.String(10), default="LOW")  # LOW/MED/HIGH/CRIT
     decision_note = db.Column(db.String(255), default="")
 
     decided_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
@@ -65,8 +72,8 @@ class AuditLog(db.Model):
     __tablename__ = "audit_logs"
     id = db.Column(db.Integer, primary_key=True)
     actor_user_id = db.Column(db.Integer, nullable=False)
-    action = db.Column(db.String(50), nullable=False)  # SUBMIT/AUTO_APPROVE/APPROVE/REJECT
-    entity = db.Column(db.String(50), nullable=False)  # LeaveRequest
+    action = db.Column(db.String(50), nullable=False)
+    entity = db.Column(db.String(50), nullable=False)
     entity_id = db.Column(db.Integer, nullable=False)
     meta = db.Column(db.String(500), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
