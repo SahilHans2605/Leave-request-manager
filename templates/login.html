@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Login • LeaveSmart{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="card">
+      <div class="card-body">
+
+        <div class="text-center mb-3">
+          <div style="font-weight:900; font-size:1.4rem; color: aliceblue;" >Welcome back</div>
+          <div class="subtle">Sign in to manage leaves & approvals.</div>
+        </div>
+
+        <form method="post">
+          <label class="form-label">Email</label>
+          <input class="form-control mb-3" name="email" placeholder="you@example.com" required>
+
+          <label class="form-label">Password</label>
+          <input class="form-control mb-3" type="password" name="password" placeholder="••••••••" required>
+
+          <button class="btn btn-primary w-100">Sign in</button>
+        </form>
+
+        <div class="divider"></div>
+
+        
+
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
